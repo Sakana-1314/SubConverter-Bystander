@@ -31,6 +31,7 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+          cache-dependency-path: go.mod
 
       - name: gofmt
         run: |
@@ -87,6 +88,8 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: 冒烟测试
+        env:
+          IMAGE: local/bystander:verify
         run: bash tests/smoke.sh
 
       - name: 推送镜像（多架构）
