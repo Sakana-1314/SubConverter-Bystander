@@ -1,0 +1,10 @@
+.git
+.github
+.gitignore
+*.md
+tests
+notes
+bystander
+bystander.exe
+coverage.out
+*.log

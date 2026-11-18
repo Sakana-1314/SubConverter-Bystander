@@ -1,0 +1,121 @@
+name: 构建镜像
+
+# 每天 01:00（东八区）= 17:00 UTC，拉取 SubConverter-Extended 最新 Release 打包；
+# PR 与 main 推送只校验，schedule 与 workflow_dispatch 才推送镜像。
+on:
+  schedule:
+    - cron: '0 17 * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/sakana-1314/subconverter-bystander
+
+jobs:
+  lint:
+    name: 静态检查
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: gofmt
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then echo "以下文件未格式化："; echo "$unformatted"; exit 1; fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: 单元测试
+        run: go test -race ./...
+
+  image:
+    name: 镜像构建与发布
+    needs: lint
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 解析转换器最新版本
+        id: converter
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="$(gh api repos/Aethersailor/SubConverter-Extended/releases/latest --jq .tag_name)"
+          test -n "$version" -a "$version" != "null"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "内置转换器版本：${version}"
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: 登录 ghcr.io
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 构建并加载（冒烟用）
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: local/bystander:verify
+          build-args: |
+            SUBCONVERTER_VERSION=${{ steps.converter.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: 冒烟测试
+        run: bash tests/smoke.sh
+
+      - name: 推送镜像（多架构）
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:${{ steps.converter.outputs.version }}
+          build-args: |
+            SUBCONVERTER_VERSION=${{ steps.converter.outputs.version }}
+          cache-from: type=gha
+
+      - name: 校验推送结果
+        if: github.event_name != 'pull_request'
+        run: docker buildx imagetools inspect "${IMAGE}:${{ steps.converter.outputs.version }}"
+
+      - name: 构建摘要
+        run: |
+          {
+            echo "### 构建结果"
+            echo "- 内置转换器：\`${{ steps.converter.outputs.version }}\`"
+            if [ "${{ github.event_name }}" = "pull_request" ]; then
+              echo "- 仅校验，未推送镜像"
+            else
+              echo "- \`${IMAGE}:latest\`"
+              echo "- \`${IMAGE}:${{ steps.converter.outputs.version }}\`"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
