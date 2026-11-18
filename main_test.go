@@ -156,6 +156,27 @@ func TestServiceCachesUserinfo(t *testing.T) {
 	}
 }
 
+func TestServiceDisablesCacheForSub(t *testing.T) {
+	converter := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "public, max-age=3600")
+	}))
+	defer converter.Close()
+
+	svc := newService(testConfig(t, converter.URL))
+	rec := serve(t, svc, "/sub?target=clash")
+	if got := rec.Header().Get("Cache-Control"); got != "no-store, private" {
+		t.Errorf("/sub Cache-Control = %q，期望 no-store, private", got)
+	}
+	if got := rec.Header().Get("Expires"); got != "0" {
+		t.Errorf("/sub Expires = %q，期望 0", got)
+	}
+
+	rec = serve(t, svc, "/version")
+	if got := rec.Header().Get("Cache-Control"); got != "public, max-age=3600" {
+		t.Errorf("/version Cache-Control = %q，不应被改写", got)
+	}
+}
+
 func TestHealthzDoesNotNeedConverter(t *testing.T) {
 	cfg := testConfig(t, "http://127.0.0.1:1")
 	svc := newService(cfg)

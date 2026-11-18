@@ -38,6 +38,7 @@ docker run -d --name bystander -p 8080:8080 \
 - 订阅源请求优先 `HEAD`，没有流量头时用 `GET` + `Range: bytes=0-0` 兜底；只读响应头，不读正文。
 - 默认超时 3 秒，失败静默：拿不到就不加头，转换结果不受影响。
 - 转换器已经返回 `Subscription-Userinfo` 时不覆盖。
+- `/sub` 响应固定 `Cache-Control: no-store, private`，避免 CDN 缓存动态流量和转换结果。
 - UA 取 `ua:` 前缀，否则用请求头 UA，最后回退 `clash.meta`。
 - 同一订阅地址 + UA 的结果缓存 60 秒，避免重复请求机场。
 - 默认拒绝私网、回环、链路本地和 CGNAT 目标（SSRF 防护）。
