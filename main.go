@@ -122,6 +122,11 @@ func (s *service) modifyResponse(resp *http.Response) error {
 	if resp.Request == nil {
 		return nil
 	}
+	if resp.Request.URL.Path == "/sub" {
+		// 转换结果和流量头都是按订阅 URL/UA 变化的动态内容，禁止 CDN 缓存。
+		resp.Header.Set("Cache-Control", "no-store, private")
+		resp.Header.Set("Expires", "0")
+	}
 	ch, _ := resp.Request.Context().Value(userinfoKey{}).(<-chan string)
 	if ch == nil || resp.Header.Get("Subscription-Userinfo") != "" {
 		return nil
